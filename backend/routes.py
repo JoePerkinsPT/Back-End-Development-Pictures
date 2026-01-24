@@ -1,17 +1,12 @@
-from . import app
+from . import app, mongodb_client
 import os
 import json
 from flask import jsonify, request, make_response, abort, url_for  # noqa; F401
-
-SITE_ROOT = os.path.realpath(os.path.dirname(__file__))
-json_url = os.path.join(SITE_ROOT, "data", "pictures.json")
-data: list = json.load(open(json_url))
+from bson import json_util
 
 ######################################################################
 # RETURN HEALTH OF THE APP
 ######################################################################
-
-
 @app.route("/health")
 def health():
     return jsonify(dict(status="OK")), 200
@@ -19,16 +14,11 @@ def health():
 ######################################################################
 # COUNT THE NUMBER OF PICTURES
 ######################################################################
-
-
 @app.route("/count")
 def count():
     """return length of data"""
-    if data:
-        return jsonify(length=len(data)), 200
-
-    return {"message": "Internal server error"}, 500
-
+    count = mongodb_client.picturesdb.pictures.count_documents({})
+    return jsonify(length=count), 200
 
 ######################################################################
 # GET ALL PICTURES
@@ -36,21 +26,19 @@ def count():
 @app.route("/picture", methods=["GET"])
 def get_pictures():
     """Return all pictures"""
-    return jsonify(data), 200
+    result = mongodb_client.picturesdb.pictures.find({})
+    return json_util.dumps(list(result)), 200
 
 ######################################################################
 # GET A PICTURE
 ######################################################################
-
-
 @app.route("/picture/<int:id>", methods=["GET"])
 def get_picture_by_id(id):
     """Return a specific picture by id"""
-    for picture in data:
-        if picture["id"] == id:
-            return jsonify(picture), 200
+    picture = mongodb_client.picturesdb.pictures.find_one({"id": id})
+    if picture:
+        return json_util.dumps(picture), 200
     return jsonify({"message": "picture not found"}), 404
-
 
 ######################################################################
 # CREATE A PICTURE
@@ -61,29 +49,26 @@ def create_picture():
     picture_in = request.get_json()
     
     # Check if picture with this id already exists
-    for picture in data:
-        if picture["id"] == picture_in["id"]:
-            return jsonify({"Message": f"picture with id {picture_in['id']} already present"}), 302
+    picture = mongodb_client.picturesdb.pictures.find_one({"id": picture_in["id"]})
+    if picture:
+        return jsonify({"Message": f"picture with id {picture_in['id']} already present"}), 302
     
     # Add the new picture to the data list
-    data.append(picture_in)
-    return jsonify(picture_in), 201
+    mongodb_client.picturesdb.pictures.insert_one(picture_in)
+    return json_util.dumps(picture_in), 201
 
 ######################################################################
 # UPDATE A PICTURE
 ######################################################################
-
-
 @app.route("/picture/<int:id>", methods=["PUT"])
 def update_picture(id):
     """Update an existing picture"""
     picture_in = request.get_json()
     
     # Find and update the picture
-    for i, picture in enumerate(data):
-        if picture["id"] == id:
-            data[i] = picture_in
-            return jsonify(picture_in), 200
+    result = mongodb_client.picturesdb.pictures.update_one({"id": id}, {"$set": picture_in})
+    if result.matched_count > 0:
+        return json_util.dumps(picture_in), 200
     
     # Picture not found
     return jsonify({"message": "picture not found"}), 404
@@ -95,10 +80,9 @@ def update_picture(id):
 def delete_picture(id):
     """Delete a picture by id"""
     # Find and delete the picture
-    for i, picture in enumerate(data):
-        if picture["id"] == id:
-            data.pop(i)
-            return "", 204
+    result = mongodb_client.picturesdb.pictures.delete_one({"id": id})
+    if result.deleted_count > 0:
+        return "", 204
     
     # Picture not found
     return jsonify({"message": "picture not found"}), 404
