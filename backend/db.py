@@ -1,8 +1,64 @@
 import os
-from pymongo import MongoClient
+import json
+from pathlib import Path
 
 # Store client at module level so routes can import without circular dependency
 mongodb_client = None
+
+
+class _JsonPicturesStore:
+    """Fallback: in-memory store from JSON when MongoDB is unavailable (e.g. IBM Cloud lab)."""
+
+    def __init__(self):
+        json_path = Path(__file__).parent / "data" / "pictures.json"
+        self._data = json.load(open(json_path))
+
+    @property
+    def picturesdb(self):
+        return self
+
+    @property
+    def pictures(self):
+        return self
+
+    def count_documents(self, query):
+        return len(self._data)
+
+    def find(self, query):
+        return iter(self._data)
+
+    def find_one(self, query):
+        for doc in self._data:
+            if all(doc.get(k) == v for k, v in query.items()):
+                return doc
+        return None
+
+    def insert_one(self, doc):
+        self._data.append(doc)
+        return type('Result', (), {'inserted_id': doc.get('id')})()
+
+    def update_one(self, query, update):
+        matched = modified = 0
+        for i, doc in enumerate(self._data):
+            if all(doc.get(k) == v for k, v in query.items()):
+                matched = 1
+                if '$set' in update:
+                    self._data[i].update(update['$set'])
+                    modified = 1
+                break
+        r = type('Result', (), {'matched_count': matched, 'modified_count': modified})()
+        return r
+
+    def delete_one(self, query):
+        deleted = 0
+        for i, doc in enumerate(self._data):
+            if all(doc.get(k) == v for k, v in query.items()):
+                self._data.pop(i)
+                deleted = 1
+                break
+        r = type('Result', (), {'deleted_count': deleted})()
+        return r
+
 
 def init_db():
     global mongodb_client
@@ -17,10 +73,12 @@ def init_db():
     else:
         url = f"mongodb://{mongodb_service}:{mongodb_port}"
 
-    client = MongoClient(url)
-    db = client.picturesdb
-    db.pictures.drop()
-    db.pictures.insert_many(
+    try:
+        from pymongo import MongoClient
+        client = MongoClient(url, serverSelectionTimeoutMS=5000)
+        db = client.picturesdb
+        db.pictures.drop()
+        db.pictures.insert_many(
         [
             {
                 "id": 1,
@@ -103,6 +161,10 @@ def init_db():
                 "event_date": "11/19/2022"
             }
         ]
-    )
-    mongodb_client = client
-    return client
+        )
+        mongodb_client = client
+        return client
+    except Exception:
+        # MongoDB not available (e.g. IBM Cloud lab without MongoDB) - use JSON fallback
+        mongodb_client = _JsonPicturesStore()
+        return mongodb_client
