@@ -1,3 +1,4 @@
+import os
 from pymongo import MongoClient
 
 # Store client at module level so routes can import without circular dependency
@@ -5,8 +6,18 @@ mongodb_client = None
 
 def init_db():
     global mongodb_client
-    # Updated to no-auth connection
-    client = MongoClient("mongodb://127.0.0.1:27017")
+    # Use IBM Cloud lab env vars if set, otherwise localhost for local dev
+    mongodb_service = os.environ.get('MONGODB_SERVICE', '127.0.0.1')
+    mongodb_port = os.environ.get('MONGODB_PORT', '27017')
+    mongodb_username = os.environ.get('MONGODB_USERNAME')
+    mongodb_password = os.environ.get('MONGODB_PASSWORD')
+
+    if mongodb_username and mongodb_password:
+        url = f"mongodb://{mongodb_username}:{mongodb_password}@{mongodb_service}:{mongodb_port}"
+    else:
+        url = f"mongodb://{mongodb_service}:{mongodb_port}"
+
+    client = MongoClient(url)
     db = client.picturesdb
     db.pictures.drop()
     db.pictures.insert_many(
