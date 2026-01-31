@@ -1,6 +1,10 @@
 from pymongo import MongoClient
 
+# Store client at module level so routes can import without circular dependency
+mongodb_client = None
+
 def init_db():
+    global mongodb_client
     # Updated to no-auth connection
     client = MongoClient("mongodb://127.0.0.1:27017")
     db = client.picturesdb
@@ -89,4 +93,5 @@ def init_db():
             }
         ]
     )
+    mongodb_client = client
     return client

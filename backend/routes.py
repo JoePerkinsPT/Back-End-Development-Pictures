@@ -1,4 +1,5 @@
-from . import app, mongodb_client
+from . import app
+from .db import mongodb_client
 import os
 import json
 from flask import jsonify, request, make_response, abort, url_for  # noqa; F401
